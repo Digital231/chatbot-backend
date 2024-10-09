@@ -2,6 +2,17 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
+// Define memory item schema
+const memoryItemSchema = new mongoose.Schema({
+  content: String,
+  isPositive: Boolean,
+  context: {
+    timestamp: Date,
+    messageLength: Number,
+    timeOfDay: String,
+  },
+});
+
 // Define User Schema
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
@@ -16,9 +27,10 @@ const userSchema = new mongoose.Schema({
     },
   ],
   longTermMemory: {
-    preferences: [String],
-    facts: [String],
-    personality: String,
+    preferences: [memoryItemSchema],
+    facts: [memoryItemSchema],
+    relationships: [memoryItemSchema], // Added relationships
+    personality: String, // Kept as is
   },
 });
 
@@ -34,4 +46,34 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-module.exports = mongoose.model("User", userSchema);
+// Migration helper method
+userSchema.methods.migrateMemories = async function () {
+  // Migrate each memory type
+  for (const type of ["preferences", "facts"]) {
+    if (Array.isArray(this.longTermMemory[type])) {
+      this.longTermMemory[type] = this.longTermMemory[type].map((item) => {
+        if (typeof item === "string") {
+          return {
+            content: item,
+            isPositive: true, // default value
+            context: {
+              timestamp: new Date(),
+              messageLength: item.split(" ").length,
+              timeOfDay:
+                new Date().getHours() < 12
+                  ? "rytas"
+                  : new Date().getHours() < 18
+                  ? "diena"
+                  : "vakaras",
+            },
+          };
+        }
+        return item; // if it's already in the correct format
+      });
+    }
+  }
+};
+
+const User = mongoose.model("User", userSchema);
+
+module.exports = User;

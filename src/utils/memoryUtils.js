@@ -14,26 +14,49 @@ const MEMORY_PATTERNS = {
       "favoritas",
       "nekenčiu",
       "nepatinka",
+      "labai mėgstu",
+      "negaliu pakęsti",
+      "esate puikus",
     ],
-    negativeKeywords: ["ne", "niekada", "nenoriu"],
+    negativeKeywords: [
+      "ne",
+      "niekada",
+      "nenoriu",
+      "nemėgstu",
+      "nekenčiu",
+      "nepatinka",
+    ],
     patterns: [
-      /(?:mano favoritas|aš teikiu pirmenybę) (.+)/i,
-      /(?:man )?(?:labai )?(?:patinka|mėgstu) (.+)/i,
-      /aš (?:labai )?(?:nekenčiu|nemėgstu) (.+)/i,
-      /man nepatinka (.+)/i,
+      /(?:mano favoritas|aš teikiu pirmenybę|mano pasirinkimas yra) (.+)/i,
+      /(?:man )?(?:labai )?(?:patinka|mėgstu|dievinu|esu didelis gerbėjas|esate nuostabūs|esate puikus|esate mano favoritas) (.+)/i,
+      /aš (?:absoliučiai )?(?:myliu|dievinau|nekenčiu|nemėgstu|niekada nemėgčiau) (.+)/i,
+      /man (?:visiškai )?nepatinka (.+)/i,
+      /negalėčiau įsivaizduoti gyvenimo be (.+)/i,
+      /mano mėgstamiausias dalykas yra (.+)/i,
+      /negaliu pakęsti (.+)/i,
+      /aš norėčiau daugiau (.+)/i,
     ],
   },
   facts: {
     patterns: [
-      /Aš (?:esu iš|gyvenu) (.+)/i,
-      /Mano (?:amžius|vardas) (?:yra)? (.+)/i,
-      /Aš dirbu (?:kaip)? (.+)/i,
+      /Aš (?:esu iš|gyvenu|šiuo metu esu) (.+)/i,
+      /Mano (?:amžius|vardas|gimtadienis) (?:yra)? (.+)/i,
+      /Aš dirbu (?:kaip|pagal profesiją) (.+)/i,
       /Aš turiu (.+)/i,
+      /Mano mėgstamiausia spalva (?:yra)? (.+)/i,
+      /Man patinka (.+)/i,
+      /Mano hobis (?:yra|yra hobis) (.+)/i,
+      /Aš užsiimu (.+)/i,
     ],
   },
   relationships: {
     patterns: [
-      /Mano (?:brolis|sesuo|mama|tėtis|partneris|draugas) (?:yra|buvo) (.+)/i,
+      /Mano (?:brolis|sesuo|mama|tėtis|partneris|draugas|kolegė|žmona|vyras) (?:yra|buvo)? ?(.+)/i,
+      /Mano (?:brolis|sesuo|mama|tėtis|partneris|draugas|kolega|šeimos narys) (?:vardu)? (.+)/i,
+      /(?:Turiu|Yra) (?:brolį|seserį|mamą|tėtį|partnerį|draugą|kolegos) (?:vardu )?(.+)/i,
+      /mano artimas žmogus (?:yra|vardu) (.+)/i,
+      /mano draugas (?:yra|vardu)? (.+)/i,
+      /mano komandos narys (?:yra)? (.+)/i,
     ],
   },
 };
@@ -47,6 +70,26 @@ const analyzeSentiment = (message, pattern, negativeKeywords) => {
     isPositive: !hasNegation,
     content: pattern,
   };
+};
+
+const testMemoryPatterns = (message) => {
+  const results = {};
+
+  for (const [type, config] of Object.entries(MEMORY_PATTERNS)) {
+    results[type] = [];
+    for (const pattern of config.patterns) {
+      const match = message.match(pattern);
+      if (match) {
+        results[type].push({
+          pattern: pattern.toString(),
+          matched: match[0],
+          captured: match[1],
+        });
+      }
+    }
+  }
+
+  return results;
 };
 
 // Enhanced context extraction
@@ -91,9 +134,10 @@ const updateShortTermMemory = async (userId, newMessage) => {
   }
 };
 
+// Modified updateLongTermMemory function
 const updateLongTermMemory = async (userId, userMessage) => {
   try {
-    // Check if the userId is a valid ObjectId
+    // Validate userId format
     if (!ObjectId.isValid(userId)) {
       throw new Error("Invalid user ID format");
     }
@@ -101,7 +145,6 @@ const updateLongTermMemory = async (userId, userMessage) => {
     const user = await User.findById(userId);
     if (!user) throw new Error("User not found");
 
-    // (Remaining code for updating long-term memory...)
     const context = extractContext(userMessage);
     const extractedMemories = {
       preferences: [],
@@ -109,10 +152,17 @@ const updateLongTermMemory = async (userId, userMessage) => {
       relationships: [],
     };
 
+    // Log for debugging
+    // console.log("Processing message:", userMessage);
+
+    // Pattern matching logic
     for (const [type, config] of Object.entries(MEMORY_PATTERNS)) {
       for (const pattern of config.patterns) {
         const match = userMessage.match(pattern);
         if (match) {
+          // console.log(`Matched ${type} pattern:`, pattern.toString());
+          // console.log("Captured content:", match[1]);
+
           if (type === "preferences") {
             const sentiment = analyzeSentiment(
               userMessage,
@@ -126,7 +176,7 @@ const updateLongTermMemory = async (userId, userMessage) => {
             });
           } else {
             extractedMemories[type].push({
-              content: match[1],
+              content: match[1].trim(),
               context,
             });
           }
@@ -134,28 +184,32 @@ const updateLongTermMemory = async (userId, userMessage) => {
       }
     }
 
+    // Log extracted memories before saving
+    // console.log(
+    //   "Extracted memories:",
+    //   JSON.stringify(extractedMemories, null, 2)
+    // );
+
+    // Updated memory saving logic
     for (const [type, memories] of Object.entries(extractedMemories)) {
       if (memories.length > 0) {
-        user.longTermMemory[type] = [
-          ...(user.longTermMemory[type] || []),
-          ...memories,
-        ].filter(
+        // Initialize the array if it doesn't exist
+        if (!user.longTermMemory[type]) {
+          user.longTermMemory[type] = [];
+        }
+
+        // Add new memories
+        user.longTermMemory[type] = [...user.longTermMemory[type], ...memories];
+
+        // Remove duplicates based on content
+        user.longTermMemory[type] = user.longTermMemory[type].filter(
           (memory, index, self) =>
             index === self.findIndex((m) => m.content === memory.content)
         );
       }
     }
 
-    const ONE_MONTH = 30 * 24 * 60 * 60 * 1000;
-    for (const type of Object.keys(user.longTermMemory)) {
-      if (Array.isArray(user.longTermMemory[type])) {
-        user.longTermMemory[type] = user.longTermMemory[type].filter(
-          (memory) =>
-            new Date() - new Date(memory.context.timestamp) < ONE_MONTH
-        );
-      }
-    }
-
+    await user.migrateMemories(); // Migrate any old format memories
     await user.save();
     return extractedMemories;
   } catch (error) {
@@ -204,4 +258,6 @@ module.exports = {
   updateLongTermMemory,
   retrieveRelevantMemories,
   updateShortTermMemory,
+  testMemoryPatterns,
+  MEMORY_PATTERNS,
 };
